@@ -885,6 +885,9 @@ jobs:
           mkdir -p "$FTS_FW_DIR"
           [[ -f "$FTS_FW_DIR/fw_ft3518_j7.i" ]] || printf '0x00\n' > "$FTS_FW_DIR/fw_ft3518_j7.i"
           [[ -f "$FTS_FW_DIR/fw_sample.i" ]] || printf '0x00\n' > "$FTS_FW_DIR/fw_sample.i"
+          FTS_PB_DIR="drivers/input/touchscreen/focaltech_touch/include/pramboot"
+          mkdir -p "$FTS_PB_DIR"
+          [[ -f "$FTS_PB_DIR/FT8719_Pramboot_V0.5_20171221.i" ]] || printf '0x00\n' > "$FTS_PB_DIR/FT8719_Pramboot_V0.5_20171221.i"
 
           VCU_MAKEFILE="drivers/media/platform/mtk-vcu/Makefile"
           if grep -q 'obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o mtk_vcodec_mem.o' "$VCU_MAKEFILE"; then
