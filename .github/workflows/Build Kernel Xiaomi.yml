@@ -81,6 +81,7 @@ jobs:
               echo "device_name=Redmi Note 11 Pro pissarro Android R" >> "$GITHUB_OUTPUT"
               echo "source_branch=pissarro-r-oss" >> "$GITHUB_OUTPUT"
               echo "defconfig=pissarro_user_defconfig" >> "$GITHUB_OUTPUT"
+              echo "build_target=Image.gz-dtb" >> "$GITHUB_OUTPUT"
               echo "kernel_image=arch/arm64/boot/Image.gz-dtb" >> "$GITHUB_OUTPUT"
               echo "android_short=11" >> "$GITHUB_OUTPUT"
               ;;
@@ -88,6 +89,7 @@ jobs:
               echo "device_name=Redmi Note 11 Pro pissarro Android S" >> "$GITHUB_OUTPUT"
               echo "source_branch=pissarro-s-oss" >> "$GITHUB_OUTPUT"
               echo "defconfig=pissarro_user_defconfig" >> "$GITHUB_OUTPUT"
+              echo "build_target=Image.gz-dtb" >> "$GITHUB_OUTPUT"
               echo "kernel_image=arch/arm64/boot/Image.gz-dtb" >> "$GITHUB_OUTPUT"
               echo "android_short=12" >> "$GITHUB_OUTPUT"
               ;;
@@ -458,7 +460,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            "${{ steps.device.outputs.kernel_image }}"
+            "${{ steps.device.outputs.build_target }}"
           ccache -s
 
       - name: Save Ccache
