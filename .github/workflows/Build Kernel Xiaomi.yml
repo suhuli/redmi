@@ -224,7 +224,135 @@ jobs:
           cp susfs4ksu/kernel_patches/fs/* kernel/fs/
           cp susfs4ksu/kernel_patches/include/linux/* kernel/include/linux/
           cd kernel
-          patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.14.patch
+          patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.14.patch || true
+          rm -f fs/notify/fdinfo.c.rej fs/readdir.c.rej
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def insert_after(path, anchor, text):
+              p = Path(path)
+              data = p.read_text()
+              if text in data:
+                  return
+              if anchor not in data:
+                  raise SystemExit(f"missing SUSFS anchor in {path}:\n{anchor}")
+              p.write_text(data.replace(anchor, anchor + text, 1))
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              data = p.read_text()
+              if new in data:
+                  return
+              if old not in data:
+                  raise SystemExit(f"missing SUSFS anchor in {path}:\n{old}")
+              p.write_text(data.replace(old, new, 1))
+
+          insert_after(
+              "fs/notify/fdinfo.c",
+              "#include <linux/exportfs.h>\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux/susfs_def.h>\n#endif\n",
+          )
+          replace_once(
+              "fs/notify/fdinfo.c",
+              "static void show_fdinfo(struct seq_file *m, struct file *f,\n"
+              "\t\t\tvoid (*show)(struct seq_file *m,\n"
+              "\t\t\t\t     struct fsnotify_mark *mark))\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "static void show_fdinfo(struct seq_file *m, struct file *f,\n"
+              "\t\t\tvoid (*show)(struct seq_file *m,\n"
+              "\t\t\t\t     struct fsnotify_mark *mark,\n"
+              "\t\t\t\t     struct file *file))\n"
+              "#else\n"
+              "static void show_fdinfo(struct seq_file *m, struct file *f,\n"
+              "\t\t\tvoid (*show)(struct seq_file *m,\n"
+              "\t\t\t\t     struct fsnotify_mark *mark))\n"
+              "#endif\n",
+          )
+          replace_once(
+              "fs/notify/fdinfo.c",
+              "\tlist_for_each_entry(mark, &group->marks_list, g_list) {\n"
+              "\t\tshow(m, mark);\n",
+              "\tlist_for_each_entry(mark, &group->marks_list, g_list) {\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\t\tshow(m, mark, f);\n"
+              "#else\n"
+              "\t\tshow(m, mark);\n"
+              "#endif\n",
+          )
+          replace_once(
+              "fs/notify/fdinfo.c",
+              "static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark, struct file *file)\n"
+              "#else\n"
+              "static void inotify_fdinfo(struct seq_file *m, struct fsnotify_mark *mark)\n"
+              "#endif\n",
+          )
+          replace_once(
+              "fs/notify/fdinfo.c",
+              "\tinode = igrab(mark->connector->inode);\n"
+              "\tif (inode) {\n",
+              "\tinode = igrab(mark->connector->inode);\n"
+              "\tif (inode) {\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\t\tif (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) &&\n"
+              "\t\t\t\tunlikely(inode->i_state & INODE_STATE_SUS_KSTAT)) {\n"
+              "\t\t\tstruct path path;\n"
+              "\t\t\tchar *pathname = kmalloc(PAGE_SIZE, GFP_KERNEL);\n"
+              "\t\t\tchar *dpath;\n"
+              "\t\t\tif (!pathname)\n"
+              "\t\t\t\tgoto out_seq_printf;\n"
+              "\t\t\tdpath = d_path(&file->f_path, pathname, PAGE_SIZE);\n"
+              "\t\t\tif (IS_ERR(dpath))\n"
+              "\t\t\t\tgoto out_free_pathname;\n"
+              "\t\t\tif (kern_path(dpath, 0, &path))\n"
+              "\t\t\t\tgoto out_free_pathname;\n"
+              "\t\t\tseq_printf(m, \"inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:0 \",\n"
+              "\t\t\t\t   inode_mark->wd, path.dentry->d_inode->i_ino,\n"
+              "\t\t\t\t   path.dentry->d_inode->i_sb->s_dev, inotify_mark_user_mask(mark));\n"
+              "\t\t\tshow_mark_fhandle(m, path.dentry->d_inode);\n"
+              "\t\t\tseq_putc(m, '\\n');\n"
+              "\t\t\tiput(inode);\n"
+              "\t\t\tpath_put(&path);\n"
+              "\t\t\tkfree(pathname);\n"
+              "\t\t\treturn;\n"
+              "out_free_pathname:\n"
+              "\t\t\tkfree(pathname);\n"
+              "out_seq_printf:\n"
+              "\t\t\tseq_printf(m, \"inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:0 \",\n"
+              "\t\t\t\t   inode_mark->wd, 0UL, 0, inotify_mark_user_mask(mark));\n"
+              "\t\t\tseq_putc(m, '\\n');\n"
+              "\t\t\tiput(inode);\n"
+              "\t\t\treturn;\n"
+              "\t\t}\n"
+              "#endif\n",
+          )
+
+          insert_after(
+              "fs/readdir.c",
+              "#include <linux/uaccess.h>\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n#include <linux/susfs_def.h>\nextern int susfs_sus_ino_for_filldir64(unsigned long ino);\n#endif\n",
+          )
+          for anchor in [
+              "\tbuf->error = verify_dirent_name(name, namlen);\n",
+              "\tbuf->error = -EINVAL;\t/* only used if we fail.. */\n",
+          ]:
+              insert_after(
+                  "fs/readdir.c",
+                  anchor,
+                  "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+                  "\tif (likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC) && susfs_sus_ino_for_filldir64(ino)) {\n"
+                  "\t\treturn 0;\n"
+                  "\t}\n"
+                  "#endif\n",
+              )
+          PY
+
+          if find fs -name '*.rej' -print -quit | grep -q .; then
+            find fs -name '*.rej' -print
+            exit 12
+          fi
 
       - name: Apply SUSFS Zero Width Fix
         if: ${{ github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.ZERO_WIDTH_FIX == 'true' && github.event.inputs.SUSFS_META != '-1' }}
