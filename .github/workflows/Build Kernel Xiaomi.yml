@@ -414,6 +414,9 @@ jobs:
           def hook(body):
               return "#if defined(CONFIG_KSU_MANUAL_HOOK) || defined(CONFIG_KSU_SUSFS)\n" + body + "#endif\n"
 
+          def manual_hook(body):
+              return "#ifdef CONFIG_KSU_MANUAL_HOOK\n" + body + "#endif\n"
+
           def patch(path, replacements):
               p = Path(path)
               data = p.read_text()
@@ -555,11 +558,13 @@ jobs:
                   "__attribute__((hot))\n"
                   "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
                   "\t\t\t\tint *flags);\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
                   "extern void ksu_handle_newfstat_ret(unsigned int *fd,\n"
                   "\t\t\t\tstruct stat __user **statbuf_ptr);\n"
                   "#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)\n"
                   "extern void ksu_handle_fstat64_ret(unsigned long *fd,\n"
                   "\t\t\t\tstruct stat64 __user **statbuf_ptr);\n"
+                  "#endif\n"
                   "#endif\n"
                   ) + "\n"
                   "#if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)\n"
@@ -583,7 +588,7 @@ jobs:
                   "SYSCALL_DEFINE4(readlinkat",
                   "\tif (!error)\n"
                   "\t\terror = cp_new_stat(&stat, statbuf);\n" +
-                  hook(
+                  manual_hook(
                   "\tksu_handle_newfstat_ret(&fd, &statbuf);\n"
                   ) + "\n"
                   "\treturn error;\n"
@@ -598,7 +603,7 @@ jobs:
                   "SYSCALL_DEFINE4(fstatat64",
                   "\tif (!error)\n"
                   "\t\terror = cp_new_stat64(&stat, statbuf);\n" +
-                  hook(
+                  manual_hook(
                   "\tksu_handle_fstat64_ret(&fd, &statbuf);\n"
                   ) + "\n"
                   "\treturn error;\n"
@@ -687,6 +692,31 @@ jobs:
 
           patch("KernelSU/kernel/supercall/dispatch.c", [
               (
+                  "#include \"supercall/supercall.h\"\n",
+                  "#include \"supercall/supercall.h\"\n\n"
+                  "#if defined(CONFIG_KSU_SUSFS) && !defined(CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING)\n"
+                  "static void susfs_start_sdcard_monitor_fn(void) {}\n"
+                  "static bool susfs_is_current_proc_umounted(void) { return false; }\n"
+                  "#endif\n"
+              ),
+              (
+                  "#ifndef CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING\n"
+                  "static void susfs_start_sdcard_monitor_fn(void) {}\n"
+                  "static bool susfs_is_current_proc_umounted(void) { return false; }\n"
+                  "#endif\n\n",
+                  ""
+              ),
+              (
+                  "        on_boot_completed();\n"
+                  "#ifdef CONFIG_KSU_SUSFS\n"
+                  "                susfs_start_sdcard_monitor_fn();\n"
+                  "#endif\n",
+                  "        on_boot_completed();\n"
+                  "#if defined(CONFIG_KSU_SUSFS) && defined(CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING)\n"
+                  "                susfs_start_sdcard_monitor_fn();\n"
+                  "#endif\n"
+              ),
+              (
                   "    case CMD_SUSFS_ADD_SUS_PATH_LOOP: {\n"
                   "        susfs_add_sus_path_loop(arg);\n"
                   "        return 0;\n"
@@ -732,6 +762,66 @@ jobs:
                   "        susfs_set_avc_log_spoofing(arg);\n"
                   "        return 0;\n"
                   "    }\n"
+                  "#endif\n"
+              ),
+              (
+                  "    case CMD_SUSFS_SHOW_ENABLED_FEATURES: {\n"
+                  "        susfs_get_enabled_features(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "    case CMD_SUSFS_SHOW_VARIANT: {\n"
+                  "        susfs_show_variant(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "    case CMD_SUSFS_SHOW_VERSION: {\n"
+                  "        susfs_show_version(arg);\n"
+                  "        return 0;\n"
+                  "    }\n",
+                  "#ifdef CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING\n"
+                  "    case CMD_SUSFS_SHOW_ENABLED_FEATURES: {\n"
+                  "        susfs_get_enabled_features(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "    case CMD_SUSFS_SHOW_VARIANT: {\n"
+                  "        susfs_show_variant(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "    case CMD_SUSFS_SHOW_VERSION: {\n"
+                  "        susfs_show_version(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "#endif\n"
+              ),
+          ])
+
+          patch("KernelSU/kernel/feature/sucompat.c", [
+              (
+                  "#ifdef CONFIG_KSU_SUSFS\n"
+                  "        else if (likely(strstr(filename, \"/app_process\") == NULL && strstr(filename, \"/adbd\") == NULL) &&\n"
+                  "                 !susfs_is_current_proc_umounted()) {\n"
+                  "            pr_info(\"susfs: mark no sucompat checks for pid: '%d', exec: '%s'\\n\", current->pid, filename);\n"
+                  "            susfs_set_current_proc_umounted();\n"
+                  "        }\n"
+                  "#endif\n",
+                  "#if defined(CONFIG_KSU_SUSFS) && defined(CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING)\n"
+                  "        else if (likely(strstr(filename, \"/app_process\") == NULL && strstr(filename, \"/adbd\") == NULL) &&\n"
+                  "                 !susfs_is_current_proc_umounted()) {\n"
+                  "            pr_info(\"susfs: mark no sucompat checks for pid: '%d', exec: '%s'\\n\", current->pid, filename);\n"
+                  "            susfs_set_current_proc_umounted();\n"
+                  "        }\n"
+                  "#endif\n"
+              ),
+          ])
+
+          patch("KernelSU/kernel/feature/kernel_umount.c", [
+              (
+                  "#ifdef CONFIG_KSU_SUSFS\n"
+                  "    schedule_work(&susfs_extra_works);\n"
+                  "    susfs_set_current_proc_umounted();\n"
+                  "#endif\n",
+                  "#if defined(CONFIG_KSU_SUSFS) && defined(CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING)\n"
+                  "    schedule_work(&susfs_extra_works);\n"
+                  "    susfs_set_current_proc_umounted();\n"
                   "#endif\n"
               ),
           ])
