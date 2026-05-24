@@ -390,13 +390,12 @@ jobs:
               "\t\t\treturn NULL;\n"
               "\t\t}",
           )
-          replace_if_found(
-              "fs/susfs.c",
-              "return (likely(susfs_is_current_proc_umounted()) &&\n"
-              "\t\tunlikely(current_uid().val != i_uid));",
-              "return (likely(susfs_is_current_proc_umounted()) &&\n"
-              "\t\tunlikely(current_uid().val != i_uid) && unlikely(current_uid().val != 0));",
-          )
+          p = Path("fs/susfs.c")
+          data = p.read_text()
+          old = "return (likely(susfs_is_current_proc_umounted()) &&\n\t\tunlikely(current_uid().val != i_uid));"
+          new = "return (likely(susfs_is_current_proc_umounted()) &&\n\t\tunlikely(current_uid().val != i_uid) && unlikely(current_uid().val != 0));"
+          if old in data and new not in data:
+              p.write_text(data.replace(old, new, 1))
           PY
 
       - name: Apply ReSukiSU Manual Hooks
