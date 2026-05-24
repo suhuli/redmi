@@ -446,7 +446,7 @@ jobs:
           set -euo pipefail
           cd kernel_workspace/kernel
           export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang/clang-r383902/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc64/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc32/bin:/usr/lib/ccache:$PATH"
-          make -j"$(nproc --all)" O=out ARCH=arm64 \
+          make -j4 O=out ARCH=arm64 \
             CC="ccache clang" \
             HOSTCC="ccache clang" \
             LD=ld.lld \
