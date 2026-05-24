@@ -234,7 +234,7 @@ jobs:
           cp susfs4ksu/kernel_patches/include/linux/* kernel/include/linux/
           cd kernel
           patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.14.patch || true
-          rm -f fs/notify/fdinfo.c.rej fs/readdir.c.rej
+          rm -f fs/dcache.c.rej fs/notify/fdinfo.c.rej fs/readdir.c.rej
 
           python3 - <<'PY'
           from pathlib import Path
@@ -261,6 +261,11 @@ jobs:
               "include/linux/susfs_def.h",
               "#define CMD_SUSFS_SUS_SU 0x60000\n",
               "\n#ifndef SUSFS_MAGIC\n#define SUSFS_MAGIC 0xFAFAFAFA\n#endif\n",
+          )
+          insert_after(
+              "fs/dcache.c",
+              "#include <linux/list_lru.h>\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n#include <linux/susfs_def.h>\n#endif\n",
           )
           insert_after(
               "fs/notify/fdinfo.c",
