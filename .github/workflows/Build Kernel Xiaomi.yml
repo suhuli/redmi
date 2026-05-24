@@ -679,6 +679,57 @@ jobs:
                   "\tif (is_event_supported(type, dev->evbit, EV_MAX)) {\n"
               ),
           ])
+
+          patch("KernelSU/kernel/supercall/dispatch.c", [
+              (
+                  "    case CMD_SUSFS_ADD_SUS_PATH_LOOP: {\n"
+                  "        susfs_add_sus_path_loop(arg);\n"
+                  "        return 0;\n"
+                  "    }\n",
+                  "#ifdef CMD_SUSFS_ADD_SUS_PATH_LOOP\n"
+                  "    case CMD_SUSFS_ADD_SUS_PATH_LOOP: {\n"
+                  "        susfs_add_sus_path_loop(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "#endif\n"
+              ),
+              (
+                  "    case CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS: {\n"
+                  "        susfs_set_hide_sus_mnts_for_non_su_procs(arg);\n"
+                  "        return 0;\n"
+                  "    }\n",
+                  "#ifdef CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS\n"
+                  "    case CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS: {\n"
+                  "        susfs_set_hide_sus_mnts_for_non_su_procs(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "#endif\n"
+              ),
+              (
+                  "    case CMD_SUSFS_ADD_SUS_MAP: {\n"
+                  "        susfs_add_sus_map(arg);\n"
+                  "        return 0;\n"
+                  "    }\n",
+                  "#ifdef CMD_SUSFS_ADD_SUS_MAP\n"
+                  "    case CMD_SUSFS_ADD_SUS_MAP: {\n"
+                  "        susfs_add_sus_map(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "#endif\n"
+              ),
+              (
+                  "    case CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING: {\n"
+                  "        susfs_set_avc_log_spoofing(arg);\n"
+                  "        return 0;\n"
+                  "    }\n",
+                  "#ifdef CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING\n"
+                  "    case CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING: {\n"
+                  "        susfs_set_avc_log_spoofing(arg);\n"
+                  "        return 0;\n"
+                  "    }\n"
+                  "#endif\n"
+              ),
+          ])
           PY
 
           grep -q 'ksu_handle_execveat' fs/exec.c
@@ -690,6 +741,7 @@ jobs:
           grep -q 'ksu_handle_setresuid' kernel/sys.c
           grep -q 'ksu_handle_sys_read' fs/read_write.c
           grep -q 'ksu_handle_input_handle_event' drivers/input/input.c
+          grep -q 'CMD_SUSFS_ADD_SUS_PATH_LOOP' KernelSU/kernel/supercall/dispatch.c
 
       - name: Fix Xiaomi Duplicate VCU Object
         run: |
