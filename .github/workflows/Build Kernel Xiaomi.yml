@@ -11,6 +11,7 @@ on:
         options:
           - redmi_note11pro_pissarro_r
           - redmi_note11pro_pissarro_s
+          - redmi_10x5g_atom_r
       MANAGER_SOURCE:
         type: choice
         description: "Root manager source"
@@ -112,6 +113,14 @@ jobs:
               echo "build_target=Image.gz-dtb" >> "$GITHUB_OUTPUT"
               echo "kernel_image=arch/arm64/boot/Image.gz-dtb" >> "$GITHUB_OUTPUT"
               echo "android_short=12" >> "$GITHUB_OUTPUT"
+              ;;
+            redmi_10x5g_atom_r)
+              echo "device_name=Redmi 10X 5G atom Android R" >> "$GITHUB_OUTPUT"
+              echo "source_branch=bomb-q-oss" >> "$GITHUB_OUTPUT"
+              echo "defconfig=atom_user_defconfig" >> "$GITHUB_OUTPUT"
+              echo "build_target=Image.gz-dtb" >> "$GITHUB_OUTPUT"
+              echo "kernel_image=arch/arm64/boot/Image.gz-dtb" >> "$GITHUB_OUTPUT"
+              echo "android_short=11" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "Unknown FILE: $FILE" >&2
