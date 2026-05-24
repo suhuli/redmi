@@ -39,6 +39,26 @@ on:
         description: "Keep compatibility flags and use ccache"
         required: true
         default: true
+      ENABLE_KPM:
+        type: boolean
+        description: "Enable ReSukiSU KPM support"
+        required: true
+        default: false
+      ENABLE_SUSFS:
+        type: boolean
+        description: "Enable SUSFS inline hook support"
+        required: true
+        default: false
+      SUSFS_META:
+        type: string
+        description: "SUSFS branch/custom tag/commit hash, or -1 to disable"
+        required: false
+        default: "kernel-4.14//"
+      ZERO_WIDTH_FIX:
+        type: boolean
+        description: "Apply SUSFS zero-width/No_5uS compatibility fix"
+        required: true
+        default: false
 
 jobs:
   build:
@@ -178,6 +198,78 @@ jobs:
             KSU_VERSION="${KSU_VERSION}-${CUSTOM_TAG}"
           fi
           echo "KSU_VERSION=$KSU_VERSION" >> "$GITHUB_ENV"
+
+      - name: Apply SUSFS Patches
+        if: ${{ github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.SUSFS_META != '-1' }}
+        run: |
+          set -euo pipefail
+          cd kernel_workspace
+
+          SUSFS_META="${{ github.event.inputs.SUSFS_META }}"
+          if [[ "$(grep -o '/' <<< "$SUSFS_META" | wc -l)" -lt 2 ]]; then
+            echo "SUSFS_META format must be: branch/custom_tag/commit_hash" >&2
+            exit 11
+          fi
+          IFS='/' read -r SUSFS_BRANCH SUSFS_TAG SUSFS_HASH <<< "$SUSFS_META"
+          [[ -n "$SUSFS_BRANCH" ]] || SUSFS_BRANCH="kernel-4.14"
+
+          git clone --depth=1 --branch "$SUSFS_BRANCH" https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
+          cd susfs4ksu
+          if [[ -n "$SUSFS_HASH" ]]; then
+            git fetch origin "$SUSFS_BRANCH" --depth=80
+            git checkout "$SUSFS_HASH"
+          fi
+          cd ..
+
+          cp susfs4ksu/kernel_patches/fs/* kernel/fs/
+          cp susfs4ksu/kernel_patches/include/linux/* kernel/include/linux/
+          cd kernel
+          patch -p1 --forward < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.14.patch
+
+      - name: Apply SUSFS Zero Width Fix
+        if: ${{ github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.ZERO_WIDTH_FIX == 'true' && github.event.inputs.SUSFS_META != '-1' }}
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_if_found(path, old, new):
+              p = Path(path)
+              data = p.read_text()
+              if new in data:
+                  return
+              if old not in data:
+                  raise SystemExit(f"missing zero-width fix anchor in {path}")
+              p.write_text(data.replace(old, new, 1))
+
+          replace_if_found(
+              "fs/dcache.c",
+              "if (dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {\n"
+              "\t\t\t\tcontinue;\n"
+              "\t\t\t}",
+              "if (dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {\n"
+              "\t\t\t\treturn NULL;\n"
+              "\t\t\t}",
+          )
+          replace_if_found(
+              "fs/dcache.c",
+              "if (dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {\n"
+              "\t\t\tcontinue;\n"
+              "\t\t}",
+              "if (dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {\n"
+              "\t\t\treturn NULL;\n"
+              "\t\t}",
+          )
+          replace_if_found(
+              "fs/susfs.c",
+              "return (likely(susfs_is_current_proc_umounted()) &&\n"
+              "\t\tunlikely(current_uid().val != i_uid));",
+              "return (likely(susfs_is_current_proc_umounted()) &&\n"
+              "\t\tunlikely(current_uid().val != i_uid) && unlikely(current_uid().val != 0));",
+          )
+          PY
 
       - name: Apply ReSukiSU Manual Hooks
         run: |
@@ -426,7 +518,28 @@ jobs:
 
           ./scripts/config --file out/.config -e KSU
           ./scripts/config --file out/.config -d KSU_TRACEPOINT_HOOK
-          ./scripts/config --file out/.config -e KSU_MANUAL_HOOK
+          if [[ "${{ github.event.inputs.ENABLE_SUSFS }}" == "true" && "${{ github.event.inputs.SUSFS_META }}" != "-1" ]]; then
+            ./scripts/config --file out/.config -d KSU_MANUAL_HOOK
+            ./scripts/config --file out/.config -e KSU_SUSFS
+            ./scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH
+            ./scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT
+            ./scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT
+            ./scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME
+            ./scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG
+            ./scripts/config --file out/.config -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+            ./scripts/config --file out/.config -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+            ./scripts/config --file out/.config -e KSU_SUSFS_OPEN_REDIRECT
+          else
+            ./scripts/config --file out/.config -e KSU_MANUAL_HOOK
+            ./scripts/config --file out/.config -d KSU_SUSFS
+          fi
+          if [[ "${{ github.event.inputs.ENABLE_KPM }}" == "true" ]]; then
+            ./scripts/config --file out/.config -e KPM
+            ./scripts/config --file out/.config -e KALLSYMS
+            ./scripts/config --file out/.config -e KALLSYMS_ALL
+          else
+            ./scripts/config --file out/.config -d KPM
+          fi
           ./scripts/config --file out/.config -e SECCOMP
           ./scripts/config --file out/.config -e SECCOMP_FILTER
 
@@ -440,6 +553,11 @@ jobs:
 
           make O=out ARCH=arm64 olddefconfig
           grep '^CONFIG_KSU=' out/.config || true
+          grep '^CONFIG_KPM=' out/.config || true
+          grep '^CONFIG_KALLSYMS=' out/.config || true
+          grep '^CONFIG_KALLSYMS_ALL=' out/.config || true
+          grep '^CONFIG_KSU_MANUAL_HOOK=' out/.config || true
+          grep '^CONFIG_KSU_SUSFS=' out/.config || true
           grep '^CONFIG_SECCOMP=' out/.config || true
           grep '^CONFIG_SECCOMP_FILTER=' out/.config || true
 
