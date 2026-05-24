@@ -910,13 +910,44 @@ jobs:
           set -euo pipefail
           cd kernel_workspace/kernel
 
-          FTS_FW_DIR="drivers/input/touchscreen/focaltech_touch/include/firmware"
-          mkdir -p "$FTS_FW_DIR"
-          [[ -f "$FTS_FW_DIR/fw_ft3518_j7.i" ]] || printf '0x00\n' > "$FTS_FW_DIR/fw_ft3518_j7.i"
-          [[ -f "$FTS_FW_DIR/fw_sample.i" ]] || printf '0x00\n' > "$FTS_FW_DIR/fw_sample.i"
-          FTS_PB_DIR="drivers/input/touchscreen/focaltech_touch/include/pramboot"
-          mkdir -p "$FTS_PB_DIR"
-          [[ -f "$FTS_PB_DIR/FT8719_Pramboot_V0.5_20171221.i" ]] || printf '0x00\n' > "$FTS_PB_DIR/FT8719_Pramboot_V0.5_20171221.i"
+          if [[ "${{ github.event.inputs.FILE }}" == "redmi_10x5g_atom_r" ]]; then
+            FTS_FW_DIR="drivers/input/touchscreen/focaltech_touch/include/firmware"
+            FTS_PB_DIR="drivers/input/touchscreen/focaltech_touch/include/pramboot"
+            FTS_BASE="https://raw.githubusercontent.com/MiCode/Xiaomi_Kernel_OpenSource/cannon-q-oss/drivers/input/touchscreen/focaltech_touch"
+            mkdir -p "$FTS_FW_DIR" "$FTS_PB_DIR"
+
+            fetch_fts_file() {
+              local url="$1"
+              local dest="$2"
+              local expected_size="$3"
+              local expected_sha256="$4"
+              local tmp="${dest}.tmp"
+
+              curl -LfsS "$url" -o "$tmp"
+              local actual_size
+              actual_size="$(wc -c < "$tmp" | tr -d '[:space:]')"
+              if [[ "$actual_size" != "$expected_size" ]]; then
+                echo "Unexpected size for $dest: got $actual_size, want $expected_size" >&2
+                exit 31
+              fi
+              echo "${expected_sha256}  ${tmp}" | sha256sum -c -
+              mv "$tmp" "$dest"
+            }
+
+            # bomb-q-oss has the same FocalTech driver sources as cannon-q-oss, but misses these include blobs.
+            fetch_fts_file "$FTS_BASE/include/firmware/fw_ft3518_j7.i" \
+              "$FTS_FW_DIR/fw_ft3518_j7.i" \
+              "279409" \
+              "c063733f44d1cdef4d3df9d5168c63b21f609b1297dfb7c1cdb9e2456da646b2"
+            fetch_fts_file "$FTS_BASE/include/firmware/fw_sample.i" \
+              "$FTS_FW_DIR/fw_sample.i" \
+              "0" \
+              "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            fetch_fts_file "$FTS_BASE/include/pramboot/FT8719_Pramboot_V0.5_20171221.i" \
+              "$FTS_PB_DIR/FT8719_Pramboot_V0.5_20171221.i" \
+              "17347" \
+              "2a1513c55730ec453846f10b0c93ecd0bf7af737b408a11e7025f6b4dac685f4"
+          fi
 
           VCU_MAKEFILE="drivers/media/platform/mtk-vcu/Makefile"
           if grep -q 'obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o mtk_vcodec_mem.o' "$VCU_MAKEFILE"; then
