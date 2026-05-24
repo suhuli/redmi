@@ -1,4 +1,4 @@
-name: Build Kernel Xiaomi
+﻿name: Build Kernel Xiaomi
 
 on:
   workflow_dispatch:
@@ -176,6 +176,232 @@ jobs:
             KSU_VERSION="${KSU_VERSION}-${CUSTOM_TAG}"
           fi
           echo "KSU_VERSION=$KSU_VERSION" >> "$GITHUB_ENV"
+
+      - name: Apply ReSukiSU Manual Hooks
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def patch(path, replacements):
+              p = Path(path)
+              data = p.read_text()
+              for old, new in replacements:
+                  if new in data:
+                      continue
+                  if old not in data:
+                      raise SystemExit(f"missing patch anchor in {path}:\n{old}")
+                  data = data.replace(old, new, 1)
+              p.write_text(data)
+
+          patch("fs/exec.c", [
+              (
+                  "int do_execve(struct filename *filename,\n"
+                  "\tconst char __user *const __user *__argv,\n"
+                  "\tconst char __user *const __user *__envp)\n",
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "__attribute__((hot))\n"
+                  "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
+                  "\t\t\t\tvoid *argv, void *envp, int *flags);\n"
+                  "#endif\n\n"
+                  "int do_execve(struct filename *filename,\n"
+                  "\tconst char __user *const __user *__argv,\n"
+                  "\tconst char __user *const __user *__envp)\n"
+              ),
+              (
+                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n"
+                  "\treturn do_execveat_common(AT_FDCWD, filename, argv, envp, 0);\n",
+                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tint ksu_fd = AT_FDCWD;\n"
+                  "\tint ksu_flags = 0;\n"
+                  "\tksu_handle_execveat(&ksu_fd, &filename, &argv, &envp, &ksu_flags);\n"
+                  "\treturn do_execveat_common(ksu_fd, filename, argv, envp, ksu_flags);\n"
+                  "#endif\n"
+                  "\treturn do_execveat_common(AT_FDCWD, filename, argv, envp, 0);\n"
+              ),
+              (
+                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n\n"
+                  "\treturn do_execveat_common(fd, filename, argv, envp, flags);\n",
+                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n"
+                  "#endif\n"
+                  "\treturn do_execveat_common(fd, filename, argv, envp, flags);\n"
+              ),
+              (
+                  "\tstruct user_arg_ptr envp = {\n"
+                  "\t\t.is_compat = true,\n"
+                  "\t\t.ptr.compat = __envp,\n"
+                  "\t};\n"
+                  "\treturn do_execveat_common(AT_FDCWD, filename, argv, envp, 0);\n",
+                  "\tstruct user_arg_ptr envp = {\n"
+                  "\t\t.is_compat = true,\n"
+                  "\t\t.ptr.compat = __envp,\n"
+                  "\t};\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tint ksu_fd = AT_FDCWD;\n"
+                  "\tint ksu_flags = 0;\n"
+                  "\tksu_handle_execveat(&ksu_fd, &filename, &argv, &envp, &ksu_flags);\n"
+                  "\treturn do_execveat_common(ksu_fd, filename, argv, envp, ksu_flags);\n"
+                  "#endif\n"
+                  "\treturn do_execveat_common(AT_FDCWD, filename, argv, envp, 0);\n"
+              ),
+              (
+                  "\tstruct user_arg_ptr envp = {\n"
+                  "\t\t.is_compat = true,\n"
+                  "\t\t.ptr.compat = __envp,\n"
+                  "\t};\n"
+                  "\treturn do_execveat_common(fd, filename, argv, envp, flags);\n",
+                  "\tstruct user_arg_ptr envp = {\n"
+                  "\t\t.is_compat = true,\n"
+                  "\t\t.ptr.compat = __envp,\n"
+                  "\t};\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n"
+                  "#endif\n"
+                  "\treturn do_execveat_common(fd, filename, argv, envp, flags);\n"
+              ),
+          ])
+
+          patch("fs/open.c", [
+              (
+                  "/*\n"
+                  " * access() needs to use the real uid/gid, not the effective uid/gid.\n",
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "__attribute__((hot))\n"
+                  "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
+                  "\t\t\t\tint *mode, int *flags);\n"
+                  "#endif\n\n"
+                  "/*\n"
+                  " * access() needs to use the real uid/gid, not the effective uid/gid.\n"
+              ),
+              (
+                  "\tint res;\n"
+                  "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n\n"
+                  "\tif (mode & ~S_IRWXO)",
+                  "\tint res;\n"
+                  "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
+                  "#endif\n"
+                  "\tif (mode & ~S_IRWXO)"
+              ),
+          ])
+
+          patch("kernel/reboot.c", [
+              (
+                  "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
+                  "\t\tvoid __user *, arg)\n",
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,\n"
+                  "\t\t\t\tvoid __user **arg);\n"
+                  "#endif\n\n"
+                  "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
+                  "\t\tvoid __user *, arg)\n"
+              ),
+              (
+                  "\tchar buffer[256];\n"
+                  "\tint ret = 0;\n\n"
+                  "\t/* We only trust the superuser with rebooting the system. */\n",
+                  "\tchar buffer[256];\n"
+                  "\tint ret = 0;\n\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
+                  "#endif\n"
+                  "\t/* We only trust the superuser with rebooting the system. */\n"
+              ),
+          ])
+
+          patch("fs/stat.c", [
+              (
+                  "#if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)\n",
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "__attribute__((hot))\n"
+                  "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
+                  "\t\t\t\tint *flags);\n"
+                  "extern void ksu_handle_newfstat_ret(unsigned int *fd,\n"
+                  "\t\t\t\tstruct stat __user **statbuf_ptr);\n"
+                  "#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)\n"
+                  "extern void ksu_handle_fstat64_ret(unsigned long *fd,\n"
+                  "\t\t\t\tstruct stat64 __user **statbuf_ptr);\n"
+                  "#endif\n"
+                  "#endif\n\n"
+                  "#if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)\n"
+              ),
+              (
+                  "\tstruct kstat stat;\n"
+                  "\tint error;\n\n"
+                  "\terror = vfs_fstatat(dfd, filename, &stat, flag);\n",
+                  "\tstruct kstat stat;\n"
+                  "\tint error;\n\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_stat(&dfd, &filename, &flag);\n"
+                  "#endif\n"
+                  "\terror = vfs_fstatat(dfd, filename, &stat, flag);\n"
+              ),
+              (
+                  "\tif (!error)\n"
+                  "\t\terror = cp_new_stat(&stat, statbuf);\n\n"
+                  "\treturn error;\n"
+                  "}\n\n"
+                  "SYSCALL_DEFINE4(readlinkat",
+                  "\tif (!error)\n"
+                  "\t\terror = cp_new_stat(&stat, statbuf);\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_newfstat_ret(&fd, &statbuf);\n"
+                  "#endif\n\n"
+                  "\treturn error;\n"
+                  "}\n\n"
+                  "SYSCALL_DEFINE4(readlinkat"
+              ),
+              (
+                  "\tif (!error)\n"
+                  "\t\terror = cp_new_stat64(&stat, statbuf);\n\n"
+                  "\treturn error;\n"
+                  "}\n\n"
+                  "SYSCALL_DEFINE4(fstatat64",
+                  "\tif (!error)\n"
+                  "\t\terror = cp_new_stat64(&stat, statbuf);\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_fstat64_ret(&fd, &statbuf);\n"
+                  "#endif\n\n"
+                  "\treturn error;\n"
+                  "}\n\n"
+                  "SYSCALL_DEFINE4(fstatat64"
+              ),
+              (
+                  "SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,\n"
+                  "\t\tstruct stat64 __user *, statbuf, int, flag)\n"
+                  "{\n"
+                  "\tstruct kstat stat;\n"
+                  "\tint error;\n\n"
+                  "\terror = vfs_fstatat(dfd, filename, &stat, flag);\n",
+                  "SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,\n"
+                  "\t\tstruct stat64 __user *, statbuf, int, flag)\n"
+                  "{\n"
+                  "\tstruct kstat stat;\n"
+                  "\tint error;\n\n"
+                  "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
+                  "\tksu_handle_stat(&dfd, &filename, &flag);\n"
+                  "#endif\n"
+                  "\terror = vfs_fstatat(dfd, filename, &stat, flag);\n"
+              ),
+          ])
+          PY
+
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_faccessat' fs/open.c
+          grep -q 'ksu_handle_stat' fs/stat.c
+          grep -q 'ksu_handle_newfstat_ret' fs/stat.c
+          grep -q 'ksu_handle_fstat64_ret' fs/stat.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
 
       - name: Configure Kernel
         run: |
