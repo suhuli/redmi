@@ -173,6 +173,16 @@ jobs:
           cd kernel_workspace/kernel
           if [[ -d tools/dct ]]; then
             python3 -m lib2to3 -w tools/dct
+            python3 - <<'PY'
+            from pathlib import Path
+            p = Path("tools/dct/DrvGen.py")
+            if p.exists():
+                data = p.read_text()
+                compat = "\ndef cmp(a, b):\n    return (a > b) - (a < b)\n\n"
+                if "def cmp(a, b):" not in data:
+                    data = data.replace("sys.dont_write_bytecode = True\n", "sys.dont_write_bytecode = True\n" + compat, 1)
+                    p.write_text(data)
+            PY
           fi
 
       - name: Clone Toolchains
