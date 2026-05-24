@@ -186,6 +186,8 @@ jobs:
           make O=out ARCH=arm64 "${{ steps.device.outputs.defconfig }}"
 
           ./scripts/config --file out/.config -e KSU
+          ./scripts/config --file out/.config -d KSU_TRACEPOINT_HOOK
+          ./scripts/config --file out/.config -e KSU_MANUAL_HOOK
           ./scripts/config --file out/.config -e SECCOMP
           ./scripts/config --file out/.config -e SECCOMP_FILTER
 
