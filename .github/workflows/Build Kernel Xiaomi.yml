@@ -1,0 +1,286 @@
+name: Build Kernel Xiaomi
+
+on:
+  workflow_dispatch:
+    inputs:
+      FILE:
+        type: choice
+        description: "Device config"
+        required: true
+        default: redmi_note11pro_pissarro_r
+        options:
+          - redmi_note11pro_pissarro_r
+          - redmi_note11pro_pissarro_s
+      MANAGER_SOURCE:
+        type: choice
+        description: "Root manager source"
+        required: true
+        default: RESUKISU
+        options:
+          - RESUKISU
+          - RESUKISU_SPOOF
+      KSU_META:
+        type: string
+        description: "ReSukiSU branch/custom tag/commit hash"
+        required: false
+        default: "main//"
+      BUILD_TIME:
+        type: string
+        description: "Custom build timestamp, or F for current UTC time"
+        required: false
+        default: "F"
+      SUFFIX:
+        type: string
+        description: "Custom zip suffix"
+        required: false
+        default: ""
+      FAST_BUILD:
+        type: boolean
+        description: "Keep compatibility flags and use ccache"
+        required: true
+        default: true
+
+jobs:
+  build:
+    name: Build ${{ github.event.inputs.FILE }} ${{ github.event.inputs.SUFFIX }}
+    runs-on: ubuntu-latest
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+      CCACHE_MAXSIZE: 8G
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+
+      - name: Install Dependencies
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: git curl ccache build-essential bc bison flex libssl-dev libelf-dev libncurses-dev lz4 zstd zip unzip python3 python-is-python3 pahole
+          execute_install_scripts: true
+
+      - name: Resolve Device Config
+        id: device
+        env:
+          FILE: ${{ github.event.inputs.FILE }}
+        run: |
+          set -euo pipefail
+          case "$FILE" in
+            redmi_note11pro_pissarro_r)
+              echo "device_name=Redmi Note 11 Pro pissarro Android R" >> "$GITHUB_OUTPUT"
+              echo "source_branch=pissarro-r-oss" >> "$GITHUB_OUTPUT"
+              echo "defconfig=pissarro_user_defconfig" >> "$GITHUB_OUTPUT"
+              echo "kernel_image=arch/arm64/boot/Image.gz-dtb" >> "$GITHUB_OUTPUT"
+              echo "android_short=11" >> "$GITHUB_OUTPUT"
+              ;;
+            redmi_note11pro_pissarro_s)
+              echo "device_name=Redmi Note 11 Pro pissarro Android S" >> "$GITHUB_OUTPUT"
+              echo "source_branch=pissarro-s-oss" >> "$GITHUB_OUTPUT"
+              echo "defconfig=pissarro_user_defconfig" >> "$GITHUB_OUTPUT"
+              echo "kernel_image=arch/arm64/boot/Image.gz-dtb" >> "$GITHUB_OUTPUT"
+              echo "android_short=12" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unknown FILE: $FILE" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Resolve Manager Source
+        id: manager
+        run: |
+          set -euo pipefail
+          case "${{ github.event.inputs.MANAGER_SOURCE }}" in
+            RESUKISU)
+              echo "repo=ReSukiSU/ReSukiSU" >> "$GITHUB_OUTPUT"
+              echo "branch=main" >> "$GITHUB_OUTPUT"
+              echo "artifact=Manager-release" >> "$GITHUB_OUTPUT"
+              ;;
+            RESUKISU_SPOOF)
+              echo "repo=ReSukiSU/ReSukiSU" >> "$GITHUB_OUTPUT"
+              echo "branch=main" >> "$GITHUB_OUTPUT"
+              echo "artifact=Spoofed-Manager-release" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Prepare Workspace
+        run: |
+          set -euo pipefail
+          mkdir -p kernel_workspace
+          echo "CCACHE_DIR=$HOME/.ccache_${{ github.event.inputs.FILE }}" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.ccache_${{ github.event.inputs.FILE }}"
+
+      - name: Restore Ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache_${{ github.event.inputs.FILE }}
+          key: ccache-${{ github.event.inputs.FILE }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ github.event.inputs.FILE }}-
+
+      - name: Clone Xiaomi Kernel Source
+        run: |
+          set -euo pipefail
+          cd kernel_workspace
+          git clone --depth=1 --branch "${{ steps.device.outputs.source_branch }}" \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+
+      - name: Clone Toolchains
+        run: |
+          set -euo pipefail
+          cd kernel_workspace
+          git clone --depth=1 --filter=blob:none --sparse --branch android11-mainline-release \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
+          git -C clang sparse-checkout set clang-r383902
+
+          git clone --depth=1 --filter=blob:none --sparse --branch android11-mainline-release \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
+          git -C gcc64 sparse-checkout set bin lib libexec aarch64-linux-android
+
+          git clone --depth=1 --filter=blob:none --sparse --branch android11-mainline-release \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
+          git -C gcc32 sparse-checkout set bin lib libexec arm-linux-androideabi
+
+      - name: Add ReSukiSU
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+          KSU_META="${{ github.event.inputs.KSU_META }}"
+          if [[ "$(grep -o '/' <<< "$KSU_META" | wc -l)" -lt 2 ]]; then
+            echo "KSU_META format must be: branch/custom_tag/commit_hash" >&2
+            exit 10
+          fi
+          IFS='/' read -r KSU_BRANCH CUSTOM_TAG MANUAL_HASH <<< "$KSU_META"
+          [[ -n "$KSU_BRANCH" ]] || KSU_BRANCH="main"
+
+          curl -LSs "https://raw.githubusercontent.com/${{ steps.manager.outputs.repo }}/${{ steps.manager.outputs.branch }}/kernel/setup.sh" | bash -s "$KSU_BRANCH"
+
+          cd KernelSU
+          if [[ -n "$MANUAL_HASH" ]]; then
+            git fetch origin "$KSU_BRANCH" --depth=80
+            git checkout "$MANUAL_HASH"
+          fi
+          KSU_VERSION=$(git rev-list --count HEAD)
+          if [[ -n "$CUSTOM_TAG" ]]; then
+            KSU_VERSION="${KSU_VERSION}-${CUSTOM_TAG}"
+          fi
+          echo "KSU_VERSION=$KSU_VERSION" >> "$GITHUB_ENV"
+
+      - name: Configure Kernel
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+          export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang/clang-r383902/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc64/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc32/bin:/usr/lib/ccache:$PATH"
+
+          make O=out ARCH=arm64 "${{ steps.device.outputs.defconfig }}"
+
+          ./scripts/config --file out/.config -e KSU
+          ./scripts/config --file out/.config -e SECCOMP
+          ./scripts/config --file out/.config -e SECCOMP_FILTER
+
+          if [[ "${{ github.event.inputs.BUILD_TIME }}" != "F" && "${{ github.event.inputs.BUILD_TIME }}" != "f" && -n "${{ github.event.inputs.BUILD_TIME }}" ]]; then
+            echo "KBUILD_BUILD_TIMESTAMP=${{ github.event.inputs.BUILD_TIME }}" >> "$GITHUB_ENV"
+          else
+            echo "KBUILD_BUILD_TIMESTAMP=$(TZ=UTC date +'%a %b %d %T %Z %Y')" >> "$GITHUB_ENV"
+          fi
+          echo "KBUILD_BUILD_USER=builder" >> "$GITHUB_ENV"
+          echo "KBUILD_BUILD_HOST=github-actions" >> "$GITHUB_ENV"
+
+          make O=out ARCH=arm64 olddefconfig
+          grep '^CONFIG_KSU=' out/.config || true
+          grep '^CONFIG_SECCOMP=' out/.config || true
+          grep '^CONFIG_SECCOMP_FILTER=' out/.config || true
+
+      - name: Build Kernel
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+          export PATH="$GITHUB_WORKSPACE/kernel_workspace/clang/clang-r383902/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc64/bin:$GITHUB_WORKSPACE/kernel_workspace/gcc32/bin:/usr/lib/ccache:$PATH"
+          make -j"$(nproc --all)" O=out ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            "${{ steps.device.outputs.kernel_image }}"
+          ccache -s
+
+      - name: Save Ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache_${{ github.event.inputs.FILE }}
+          key: ccache-${{ github.event.inputs.FILE }}-${{ github.run_id }}
+
+      - name: Make AnyKernel3
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/.github
+
+          IMAGE="kernel_workspace/kernel/out/${{ steps.device.outputs.kernel_image }}"
+          if [[ ! -f "$IMAGE" ]]; then
+            echo "Kernel image not found: $IMAGE" >&2
+            find kernel_workspace/kernel/out/arch/arm64/boot -maxdepth 2 -type f | sort || true
+            exit 20
+          fi
+
+          cp "$IMAGE" AnyKernel3/Image.gz-dtb
+          sed -i 's/^do.devicecheck=.*/do.devicecheck=0/' AnyKernel3/anykernel.sh
+          sed -i 's/^do.modules=.*/do.modules=0/' AnyKernel3/anykernel.sh
+          sed -i 's/^is_slot_device=.*/is_slot_device=auto/' AnyKernel3/anykernel.sh
+
+      - name: Download ReSukiSU Manager
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          MANAGER_REPO="${{ steps.manager.outputs.repo }}"
+          MANAGER_BRANCH="${{ steps.manager.outputs.branch }}"
+          MANAGER_ARTIFACT="${{ steps.manager.outputs.artifact }}"
+
+          run_id=$(gh api "repos/${MANAGER_REPO}/actions/workflows/build-manager.yml/runs?branch=${MANAGER_BRANCH}&status=success&per_page=1" --jq '.workflow_runs[0].id' || echo "")
+          [[ -n "$run_id" ]] || exit 0
+
+          artifact_url=$(gh api "repos/${MANAGER_REPO}/actions/runs/${run_id}/artifacts" \
+            | jq -r ".artifacts[] | select(.name == \"${MANAGER_ARTIFACT}\") | .archive_download_url" \
+            | head -n1)
+          [[ -n "$artifact_url" ]] || exit 0
+
+          curl -fL -H "Authorization: token ${GITHUB_TOKEN}" -o "${MANAGER_ARTIFACT}.zip" "$artifact_url"
+          unzip -j "${MANAGER_ARTIFACT}.zip" "*.apk" -d AnyKernel3/ || true
+
+      - name: Pack AnyKernel3 Zip
+        id: pack
+        run: |
+          set -euo pipefail
+          SAFE_SUFFIX="${{ github.event.inputs.SUFFIX }}"
+          [[ -n "$SAFE_SUFFIX" ]] && SAFE_SUFFIX="_${SAFE_SUFFIX}"
+          ZIP_NAME="AnyKernel3_ReSukiSU_${KSU_VERSION}_${{ github.event.inputs.FILE }}${SAFE_SUFFIX}.zip"
+          cd AnyKernel3
+          zip -r "../${ZIP_NAME}" ./*
+          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload AnyKernel3
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.zip_name }}
+          path: ./${{ steps.pack.outputs.zip_name }}
