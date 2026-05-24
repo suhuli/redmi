@@ -863,6 +863,35 @@ jobs:
                   "#endif\n"
               ),
           ])
+
+          patch("KernelSU/kernel/feature/selinux_hide.c", [
+              (
+                  "static inline u32 current_sid(void);\n",
+                  "#ifndef KSU_COMPAT_HAS_CURRENT_SID\n"
+                  "static inline u32 current_sid(void);\n"
+                  "#endif\n"
+              ),
+              (
+                  "/*\n"
+                  " * get the subjective security ID of the current task\n"
+                  " */\n"
+                  "static inline u32 current_sid(void)\n"
+                  "{\n"
+                  "    const struct task_security_struct *tsec = current_security();\n\n"
+                  "    return tsec->sid;\n"
+                  "}\n",
+                  "#ifndef KSU_COMPAT_HAS_CURRENT_SID\n"
+                  "/*\n"
+                  " * get the subjective security ID of the current task\n"
+                  " */\n"
+                  "static inline u32 current_sid(void)\n"
+                  "{\n"
+                  "    const struct task_security_struct *tsec = current_security();\n\n"
+                  "    return tsec->sid;\n"
+                  "}\n"
+                  "#endif\n"
+              ),
+          ])
           PY
 
           grep -q 'ksu_handle_execveat' fs/exec.c
