@@ -765,6 +765,17 @@ jobs:
                   "#endif\n"
               ),
               (
+                  "    case CMD_SUSFS_ENABLE_LOG: {\n"
+                  "        susfs_enable_log(arg);\n"
+                  "        return 0;\n"
+                  "    }\n",
+                  "    case CMD_SUSFS_ENABLE_LOG: {\n"
+                  "        int enabled = (int)(long)*arg;\n"
+                  "        susfs_set_log(enabled != 0);\n"
+                  "        return 0;\n"
+                  "    }\n"
+              ),
+              (
                   "    case CMD_SUSFS_SHOW_ENABLED_FEATURES: {\n"
                   "        susfs_get_enabled_features(arg);\n"
                   "        return 0;\n"
