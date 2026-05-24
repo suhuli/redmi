@@ -177,6 +177,7 @@ jobs:
             find tools/dct -name '*.py' -print0 | xargs -0 sed -i 's/configparser.ConfigParser(allow_no_value=True)/configparser.ConfigParser(allow_no_value=True, strict=False)/g'
             find tools/dct -name '*.py' -print0 | xargs -0 sed -i 's/string\.atoi/int/g'
             sed -i 's/list(map.items())/map.items()/g' tools/dct/data/EintData.py
+            sed -i 's/list(EintData\._mode_map\.keys())/EintData._mode_map.keys()/g' tools/dct/data/EintData.py
           fi
 
       - name: Clone Toolchains
