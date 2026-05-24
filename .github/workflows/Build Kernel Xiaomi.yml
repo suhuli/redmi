@@ -249,6 +249,11 @@ jobs:
               p.write_text(data.replace(old, new, 1))
 
           insert_after(
+              "include/linux/susfs_def.h",
+              "#define CMD_SUSFS_SUS_SU 0x60000\n",
+              "\n#ifndef SUSFS_MAGIC\n#define SUSFS_MAGIC 0xFAFAFAFA\n#endif\n",
+          )
+          insert_after(
               "fs/notify/fdinfo.c",
               "#include <linux/exportfs.h>\n",
               "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux/susfs_def.h>\n#endif\n",
