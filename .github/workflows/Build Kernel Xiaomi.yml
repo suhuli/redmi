@@ -403,6 +403,17 @@ jobs:
           grep -q 'ksu_handle_fstat64_ret' fs/stat.c
           grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
 
+      - name: Fix Xiaomi Duplicate VCU Object
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+
+          VCU_MAKEFILE="drivers/media/platform/mtk-vcu/Makefile"
+          if grep -q 'obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o mtk_vcodec_mem.o' "$VCU_MAKEFILE"; then
+            sed -i 's/obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o mtk_vcodec_mem.o/obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o/' "$VCU_MAKEFILE"
+          fi
+          grep -q 'obj-$(CONFIG_VIDEO_MEDIATEK_VCU) += mtk-vcu.o$' "$VCU_MAKEFILE"
+
       - name: Configure Kernel
         run: |
           set -euo pipefail
