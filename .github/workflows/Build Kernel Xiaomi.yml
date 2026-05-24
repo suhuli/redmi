@@ -173,7 +173,7 @@ jobs:
           cd kernel_workspace/kernel
           if [[ -d tools/dct ]]; then
             python3 -m lib2to3 -w tools/dct
-            python3 -c "from pathlib import Path; p=Path('tools/dct/DrvGen.py'); data=p.read_text() if p.exists() else ''; compat='\ndef cmp(a, b):\n    return (a > b) - (a < b)\n\n'; p.write_text(data.replace('sys.dont_write_bytecode = True\n', 'sys.dont_write_bytecode = True\n' + compat, 1)) if p.exists() and 'def cmp(a, b):' not in data else None"
+            python3 -c "from pathlib import Path; p=Path('tools/dct/DrvGen.py'); data=p.read_text() if p.exists() else ''; compat='\nimport builtins\nbuiltins.cmp = lambda a, b: (a > b) - (a < b)\n\n'; p.write_text(data.replace('sys.dont_write_bytecode = True\n', 'sys.dont_write_bytecode = True\n' + compat, 1)) if p.exists() and 'builtins.cmp' not in data else None"
             find tools/dct -name '*.py' -print0 | xargs -0 sed -i 's/configparser.ConfigParser(allow_no_value=True)/configparser.ConfigParser(allow_no_value=True, strict=False)/g'
             find tools/dct -name '*.py' -print0 | xargs -0 sed -i 's/string\.atoi/int/g'
             sed -i 's/list(map.items())/map.items()/g' tools/dct/data/EintData.py
