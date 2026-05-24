@@ -167,6 +167,14 @@ jobs:
           git clone --depth=1 --branch "${{ steps.device.outputs.source_branch }}" \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
 
+      - name: Fix MTK Python2 DCT Scripts
+        run: |
+          set -euo pipefail
+          cd kernel_workspace/kernel
+          if [[ -d tools/dct ]]; then
+            python3 -m lib2to3 -w tools/dct
+          fi
+
       - name: Clone Toolchains
         run: |
           set -euo pipefail
