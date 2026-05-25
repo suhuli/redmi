@@ -1076,21 +1076,21 @@ jobs:
               ;;
           esac
 
-          cat > AnyKernel3/anykernel.sh <<AK3
+          cat > AnyKernel3/anykernel.sh <<'AK3'
           ### AnyKernel3 Ramdisk Mod Script
           ## Xiaomi/Redmi non-GKI 4.14 kernel installer
 
           ### AnyKernel setup
           properties() { '
-          kernel.string=${AK3_KERNEL_STRING}
+          kernel.string=__AK3_KERNEL_STRING__
           do.devicecheck=1
           do.modules=0
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
-          device.name1=${AK3_DEVICE1}
-          device.name2=${AK3_DEVICE2}
-          supported.versions=${AK3_SUPPORTED_VERSION}
+          device.name1=__AK3_DEVICE1__
+          device.name2=__AK3_DEVICE2__
+          supported.versions=__AK3_SUPPORTED_VERSION__
           supported.patchlevels=
           supported.vendorpatchlevels=
           '; } # end properties
@@ -1109,12 +1109,18 @@ jobs:
 
           . tools/ak3-core.sh;
 
-          # Keep the stock ramdisk and dtb from the current boot image, replace only Image.gz-dtb.
+          # Keep the stock ramdisk and dtb from the current boot image, replace only kernel image.
           split_boot;
           flash_boot;
           ## end boot install
           AK3
           sed -i 's/^          //' AnyKernel3/anykernel.sh
+          sed -i \
+            -e "s|__AK3_KERNEL_STRING__|${AK3_KERNEL_STRING}|g" \
+            -e "s|__AK3_DEVICE1__|${AK3_DEVICE1}|g" \
+            -e "s|__AK3_DEVICE2__|${AK3_DEVICE2}|g" \
+            -e "s|__AK3_SUPPORTED_VERSION__|${AK3_SUPPORTED_VERSION}|g" \
+            AnyKernel3/anykernel.sh
 
       - name: Download ReSukiSU Manager
         continue-on-error: true
