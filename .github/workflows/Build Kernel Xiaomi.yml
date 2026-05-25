@@ -18,6 +18,7 @@ on:
         required: true
         default: RESUKISU
         options:
+          - NONE
           - RESUKISU
           - RESUKISU_SPOOF
       KSU_META:
@@ -137,11 +138,22 @@ jobs:
               echo "repo=ReSukiSU/ReSukiSU" >> "$GITHUB_OUTPUT"
               echo "branch=main" >> "$GITHUB_OUTPUT"
               echo "artifact=Manager-release" >> "$GITHUB_OUTPUT"
+              echo "root_enabled=true" >> "$GITHUB_OUTPUT"
+              echo "kernel_label=ReSukiSU" >> "$GITHUB_OUTPUT"
               ;;
             RESUKISU_SPOOF)
               echo "repo=ReSukiSU/ReSukiSU" >> "$GITHUB_OUTPUT"
               echo "branch=main" >> "$GITHUB_OUTPUT"
               echo "artifact=Spoofed-Manager-release" >> "$GITHUB_OUTPUT"
+              echo "root_enabled=true" >> "$GITHUB_OUTPUT"
+              echo "kernel_label=ReSukiSU" >> "$GITHUB_OUTPUT"
+              ;;
+            NONE)
+              echo "repo=" >> "$GITHUB_OUTPUT"
+              echo "branch=" >> "$GITHUB_OUTPUT"
+              echo "artifact=" >> "$GITHUB_OUTPUT"
+              echo "root_enabled=false" >> "$GITHUB_OUTPUT"
+              echo "kernel_label=Stock" >> "$GITHUB_OUTPUT"
               ;;
           esac
 
@@ -197,6 +209,7 @@ jobs:
           git -C gcc32 sparse-checkout set bin lib libexec arm-linux-androideabi
 
       - name: Add ReSukiSU
+        if: ${{ steps.manager.outputs.root_enabled == 'true' }}
         run: |
           set -euo pipefail
           cd kernel_workspace/kernel
@@ -222,7 +235,7 @@ jobs:
           echo "KSU_VERSION=$KSU_VERSION" >> "$GITHUB_ENV"
 
       - name: Apply SUSFS Patches
-        if: ${{ github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.SUSFS_META != '-1' }}
+        if: ${{ steps.manager.outputs.root_enabled == 'true' && github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.SUSFS_META != '-1' }}
         run: |
           set -euo pipefail
           cd kernel_workspace
@@ -387,7 +400,7 @@ jobs:
           fi
 
       - name: Apply SUSFS Zero Width Fix
-        if: ${{ github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.ZERO_WIDTH_FIX == 'true' && github.event.inputs.SUSFS_META != '-1' }}
+        if: ${{ steps.manager.outputs.root_enabled == 'true' && github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.ZERO_WIDTH_FIX == 'true' && github.event.inputs.SUSFS_META != '-1' }}
         run: |
           set -euo pipefail
           cd kernel_workspace/kernel
@@ -431,6 +444,7 @@ jobs:
           PY
 
       - name: Apply ReSukiSU Manual Hooks
+        if: ${{ steps.manager.outputs.root_enabled == 'true' }}
         run: |
           set -euo pipefail
           cd kernel_workspace/kernel
@@ -963,29 +977,31 @@ jobs:
 
           make O=out ARCH=arm64 "${{ steps.device.outputs.defconfig }}"
 
-          ./scripts/config --file out/.config -e KSU
-          ./scripts/config --file out/.config -d KSU_TRACEPOINT_HOOK
-          if [[ "${{ github.event.inputs.ENABLE_SUSFS }}" == "true" && "${{ github.event.inputs.SUSFS_META }}" != "-1" ]]; then
-            ./scripts/config --file out/.config -d KSU_MANUAL_HOOK
-            ./scripts/config --file out/.config -e KSU_SUSFS
-            ./scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH
-            ./scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT
-            ./scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT
-            ./scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME
-            ./scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG
-            ./scripts/config --file out/.config -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-            ./scripts/config --file out/.config -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-            ./scripts/config --file out/.config -e KSU_SUSFS_OPEN_REDIRECT
-          else
-            ./scripts/config --file out/.config -e KSU_MANUAL_HOOK
-            ./scripts/config --file out/.config -d KSU_SUSFS
-          fi
-          if [[ "${{ github.event.inputs.ENABLE_KPM }}" == "true" ]]; then
-            ./scripts/config --file out/.config -e KPM
-            ./scripts/config --file out/.config -e KALLSYMS
-            ./scripts/config --file out/.config -e KALLSYMS_ALL
-          else
-            ./scripts/config --file out/.config -d KPM
+          if [[ "${{ steps.manager.outputs.root_enabled }}" == "true" ]]; then
+            ./scripts/config --file out/.config -e KSU
+            ./scripts/config --file out/.config -d KSU_TRACEPOINT_HOOK
+            if [[ "${{ github.event.inputs.ENABLE_SUSFS }}" == "true" && "${{ github.event.inputs.SUSFS_META }}" != "-1" ]]; then
+              ./scripts/config --file out/.config -d KSU_MANUAL_HOOK
+              ./scripts/config --file out/.config -e KSU_SUSFS
+              ./scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH
+              ./scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT
+              ./scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT
+              ./scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME
+              ./scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG
+              ./scripts/config --file out/.config -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+              ./scripts/config --file out/.config -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+              ./scripts/config --file out/.config -e KSU_SUSFS_OPEN_REDIRECT
+            else
+              ./scripts/config --file out/.config -e KSU_MANUAL_HOOK
+              ./scripts/config --file out/.config -d KSU_SUSFS
+            fi
+            if [[ "${{ github.event.inputs.ENABLE_KPM }}" == "true" ]]; then
+              ./scripts/config --file out/.config -e KPM
+              ./scripts/config --file out/.config -e KALLSYMS
+              ./scripts/config --file out/.config -e KALLSYMS_ALL
+            else
+              ./scripts/config --file out/.config -d KPM
+            fi
           fi
           ./scripts/config --file out/.config -e SECCOMP
           ./scripts/config --file out/.config -e SECCOMP_FILTER
@@ -1053,21 +1069,21 @@ jobs:
               AK3_DEVICE1="atom"
               AK3_DEVICE2="bomb"
               AK3_SUPPORTED_VERSION="11"
-              AK3_KERNEL_STRING="ReSukiSU Redmi 10X 5G kernel"
+              AK3_KERNEL_STRING="${{ steps.manager.outputs.kernel_label }} Redmi 10X 5G kernel"
               AK3_SRC="$IMAGE" python3 -c 'import os, sys; from pathlib import Path; src=Path(os.environ["AK3_SRC"]); data=src.read_bytes(); magic=bytes.fromhex("d00dfeed"); off=data.find(magic); (off > 0) or sys.exit("Redmi 10X 5G Image.gz-dtb does not contain appended DTB"); Path("AnyKernel3/Image.gz").write_bytes(data[:off]); print(f"Stripped appended DTB from Image.gz-dtb: kernel={off} dtb={len(data) - off}")'
               ;;
             redmi_note11pro_pissarro_r)
               AK3_DEVICE1="pissarro"
               AK3_DEVICE2="pissarropro"
               AK3_SUPPORTED_VERSION="11"
-              AK3_KERNEL_STRING="ReSukiSU Redmi Note 11 Pro kernel"
+              AK3_KERNEL_STRING="${{ steps.manager.outputs.kernel_label }} Redmi Note 11 Pro kernel"
               cp "$IMAGE" AnyKernel3/Image.gz-dtb
               ;;
             redmi_note11pro_pissarro_s)
               AK3_DEVICE1="pissarro"
               AK3_DEVICE2="pissarropro"
               AK3_SUPPORTED_VERSION="12"
-              AK3_KERNEL_STRING="ReSukiSU Redmi Note 11 Pro kernel"
+              AK3_KERNEL_STRING="${{ steps.manager.outputs.kernel_label }} Redmi Note 11 Pro kernel"
               cp "$IMAGE" AnyKernel3/Image.gz-dtb
               ;;
             *)
@@ -1123,6 +1139,7 @@ jobs:
             AnyKernel3/anykernel.sh
 
       - name: Download ReSukiSU Manager
+        if: ${{ steps.manager.outputs.root_enabled == 'true' }}
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1149,7 +1166,8 @@ jobs:
           set -euo pipefail
           SAFE_SUFFIX="${{ github.event.inputs.SUFFIX }}"
           [[ -n "$SAFE_SUFFIX" ]] && SAFE_SUFFIX="_${SAFE_SUFFIX}"
-          ZIP_NAME="AnyKernel3_ReSukiSU_${KSU_VERSION}_${{ github.event.inputs.FILE }}${SAFE_SUFFIX}.zip"
+          KERNEL_VERSION="${KSU_VERSION:-stock}"
+          ZIP_NAME="AnyKernel3_${{ steps.manager.outputs.kernel_label }}_${KERNEL_VERSION}_${{ github.event.inputs.FILE }}${SAFE_SUFFIX}.zip"
           cd AnyKernel3
           zip -r "../${ZIP_NAME}" ./*
           echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
