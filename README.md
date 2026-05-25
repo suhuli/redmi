@@ -38,6 +38,8 @@ ZERO_WIDTH_FIX: true
 - Artifact: `AnyKernel3_ReSukiSU_4220_redmi_10x5g_atom_r_resukisu-susfs-kpm-zerowidth-real-fts-v16.zip`
 - Artifact ID: `7187696403`
 
+注意：这个 run 已验证内核本体可成功编译，但对应 AK3 包仍带有 AnyKernel3 示例脚本，不建议直接作为刷机包使用。应基于原厂 `boot.img` 替换其中的 `Image.gz-dtb` 生成新的 `boot.img` 后测试；后续新 run 会使用修正后的 Redmi 10X 5G AK3 脚本。
+
 已确认配置：
 
 ```text
@@ -135,6 +137,17 @@ GitHub Actions 手动触发
 3. 点击 `Run workflow`。
 4. 选择机型和功能开关。
 5. 构建完成后下载 `AnyKernel3_*` artifact。
+
+对 Redmi 10X 5G，推荐优先使用基于原厂 `boot.img` 合成的新 boot 镜像做真机测试。如果使用 AK3 zip，请确认 `anykernel.sh` 中至少满足：
+
+```text
+device.name1=atom
+device.name2=bomb
+BLOCK=boot
+IS_SLOT_DEVICE=0
+split_boot;
+flash_boot;
+```
 
 Redmi 10X 5G 推荐直接使用样板参数：
 

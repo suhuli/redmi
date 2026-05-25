@@ -1049,9 +1049,70 @@ jobs:
           fi
 
           cp "$IMAGE" AnyKernel3/Image.gz-dtb
-          sed -i 's/^do.devicecheck=.*/do.devicecheck=0/' AnyKernel3/anykernel.sh
-          sed -i 's/^do.modules=.*/do.modules=0/' AnyKernel3/anykernel.sh
-          sed -i 's/^is_slot_device=.*/is_slot_device=auto/' AnyKernel3/anykernel.sh
+          case "${{ github.event.inputs.FILE }}" in
+            redmi_10x5g_atom_r)
+              AK3_DEVICE1="atom"
+              AK3_DEVICE2="bomb"
+              AK3_SUPPORTED_VERSION="11"
+              AK3_KERNEL_STRING="ReSukiSU Redmi 10X 5G kernel"
+              ;;
+            redmi_note11pro_pissarro_r)
+              AK3_DEVICE1="pissarro"
+              AK3_DEVICE2="pissarropro"
+              AK3_SUPPORTED_VERSION="11"
+              AK3_KERNEL_STRING="ReSukiSU Redmi Note 11 Pro kernel"
+              ;;
+            redmi_note11pro_pissarro_s)
+              AK3_DEVICE1="pissarro"
+              AK3_DEVICE2="pissarropro"
+              AK3_SUPPORTED_VERSION="12"
+              AK3_KERNEL_STRING="ReSukiSU Redmi Note 11 Pro kernel"
+              ;;
+            *)
+              echo "Unknown AK3 device config: ${{ github.event.inputs.FILE }}" >&2
+              exit 21
+              ;;
+          esac
+
+          cat > AnyKernel3/anykernel.sh <<AK3
+          ### AnyKernel3 Ramdisk Mod Script
+          ## Xiaomi/Redmi non-GKI 4.14 kernel installer
+
+          ### AnyKernel setup
+          properties() { '
+          kernel.string=${AK3_KERNEL_STRING}
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=${AK3_DEVICE1}
+          device.name2=${AK3_DEVICE2}
+          supported.versions=${AK3_SUPPORTED_VERSION}
+          supported.patchlevels=
+          supported.vendorpatchlevels=
+          '; } # end properties
+
+          ### AnyKernel install
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          # These MTK 4.14 targets use the boot partition. AnyKernel3 resolves "boot" via by-name paths.
+          BLOCK=boot;
+          IS_SLOT_DEVICE=0;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          . tools/ak3-core.sh;
+
+          # Keep the stock ramdisk and dtb from the current boot image, replace only Image.gz-dtb.
+          split_boot;
+          flash_boot;
+          ## end boot install
+          AK3
+          sed -i 's/^          //' AnyKernel3/anykernel.sh
 
       - name: Download ReSukiSU Manager
         continue-on-error: true
