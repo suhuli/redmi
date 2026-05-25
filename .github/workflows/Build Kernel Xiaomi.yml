@@ -1054,17 +1054,7 @@ jobs:
               AK3_DEVICE2="bomb"
               AK3_SUPPORTED_VERSION="11"
               AK3_KERNEL_STRING="ReSukiSU Redmi 10X 5G kernel"
-              python3 - <<'PY'
-              from pathlib import Path
-              src = Path("kernel_workspace/kernel/out/${{ steps.device.outputs.kernel_image }}")
-              data = src.read_bytes()
-              magic = b"\xd0\x0d\xfe\xed"
-              off = data.find(magic)
-              if off <= 0:
-                  raise SystemExit("Redmi 10X 5G Image.gz-dtb does not contain appended DTB")
-              Path("AnyKernel3/Image.gz").write_bytes(data[:off])
-              print(f"Stripped appended DTB from Image.gz-dtb: kernel={off} dtb={len(data) - off}")
-              PY
+              AK3_SRC="$IMAGE" python3 -c 'import os, sys; from pathlib import Path; src=Path(os.environ["AK3_SRC"]); data=src.read_bytes(); magic=bytes.fromhex("d00dfeed"); off=data.find(magic); (off > 0) or sys.exit("Redmi 10X 5G Image.gz-dtb does not contain appended DTB"); Path("AnyKernel3/Image.gz").write_bytes(data[:off]); print(f"Stripped appended DTB from Image.gz-dtb: kernel={off} dtb={len(data) - off}")'
               ;;
             redmi_note11pro_pissarro_r)
               AK3_DEVICE1="pissarro"
